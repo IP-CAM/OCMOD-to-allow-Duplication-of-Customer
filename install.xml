@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<modification>
+    <name>Duplicate Customer</name>
+    <code>duplicate_customer</code>
+    <version>1.0</version>
+    <author>Andy Place</author>
+    <link>https://github.com/andyplak/AddCustomerDuplicateFunction.ocmod</link>
+
+
+    <!-- Prepare duplicate button link for customer list -->
+    <file path="admin/controller/customer/customer.php">
+        <operation>
+            <search><![CDATA[
+                'edit'           => $this->url->link('customer/customer/edit', 'user_token=' . $this->session->data['user_token'] . '&customer_id=' . $result['customer_id'] . $url, true)
+            ]]></search>
+            <add position="before"><![CDATA[
+                'duplicate'      => $this->url->link('customer/customer/duplicate', 'user_token=' . $this->session->data['user_token'] . '&customer_id=' . $result['customer_id'], true),
+            ]]></add>
+        </operation>
+    </file>
+
+    <!-- Add duplicate button to customer list -->
+    <file path="admin/view/template/customer/customer_list.twig">
+        <operation>
+            <search><![CDATA[<a href="{{ customer.edit }}" data-toggle="tooltip" title="{{ button_edit }}" class="btn btn-primary"><i class="fa fa-pencil"></i></a>]]></search>
+            <add position="after"><![CDATA[
+                <a href="{{ customer.duplicate }}" data-toggle="tooltip" title="{{ button_duplicate }}" class="btn btn-primary"><i class="fa fa-copy"></i></a>
+            ]]></add>
+        </operation>
+    </file>
+
+    <!-- Add duplicate action to customer controller -->
+    <file path="admin/controller/customer/customer.php">
+        <operation>
+            <search><![CDATA[public function delete() {]]></search>
+            <add position="before"><![CDATA[
+                public function duplicate() {
+                    $this->load->language('customer/customer');
+                    $this->load->model('customer/customer');
+
+                    if (isset($this->request->get['customer_id'])) {
+                        $customer_id = $this->request->get['customer_id'];
+                    } else {
+                        $customer_id = 0;
+                    }
+
+                    $this->model_customer_customer->duplicateCustomer($customer_id);
+
+                    $this->session->data['success'] = $this->language->get('text_success');
+
+                    $this->response->redirect($this->url->link('customer/customer', 'user_token=' . $this->session->data['user_token'], true));
+                }
+            ]]></add>
+        </operation>
+    </file>
+
+    <!-- Add duplicateCustomer method to customer model -->
+    <file path="admin/model/customer/customer.php">
+        <operation>
+            <search><![CDATA[public function addCustomer($data) {]]></search>
+            <add position="before"><![CDATA[
+                public function duplicateCustomer($customer_id) {
+                    $query = $this->db->query("SELECT * FROM " . DB_PREFIX . "customer WHERE customer_id = '" . (int)$customer_id . "'");
+
+                    if ($query->num_rows) {
+                        $data = $query->row;
+
+                        $data['email'] = 'duplicate_' . $data['email'];
+                        $data['lastname'] = $data['lastname'] . ' (Duplicate)';
+                        $data['date_added'] = date('Y-m-d H:i:s');
+                        $data['ip'] = '';
+                        $data['address_id'] = 0;
+
+                        $this->addCustomer($data);
+
+                        $new_customer_id = $this->db->getLastId();
+
+                        // Duplicate addresses
+                        $this->db->query("INSERT INTO " . DB_PREFIX . "address (customer_id, firstname, lastname, company, address_1, address_2, city, postcode, country_id, zone_id, custom_field) SELECT '" . (int)$new_customer_id . "', firstname, lastname, company, address_1, address_2, city, postcode, country_id, zone_id, custom_field FROM " . DB_PREFIX . "address WHERE customer_id = '" . (int)$customer_id . "'");
+
+                        // Update customer address ID to match the first above
+                        $this->db->query("UPDATE " . DB_PREFIX . "customer SET address_id = (SELECT address_id FROM " . DB_PREFIX . "address WHERE customer_id = '" . (int)$new_customer_id . "' LIMIT 1) WHERE customer_id = '" . (int)$new_customer_id . "'");
+
+                        // Duplicate restricted products
+                        $this->db->query("INSERT INTO " . DB_PREFIX . "category_customer_restrict (category_id, customer_id) SELECT category_id, '" . (int)$new_customer_id . "' FROM " . DB_PREFIX . "category_customer_restrict WHERE customer_id = '" . (int)$customer_id . "'");
+                    }
+                }
+            ]]></add>
+        </operation>
+    </file>
+</modification>
